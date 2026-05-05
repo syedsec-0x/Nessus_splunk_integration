@@ -223,6 +223,140 @@ index=main sourcetype="nessus:vuln"
 
 ---
 
+## ⚠️ Errors Encountered & Fixes
+
+Real errors faced during implementation and how they were resolved.
+
+---
+
+### ❌ Error 1 — `pip` Not Recognized
+
+**Error:**
+```
+'pip' is not recognized as an internal or external command,
+operable program or batch file.
+```
+
+**Cause:** Python was installed but not added to the Windows system PATH, so CMD could not find the `pip` command.
+
+**Fix:**
+1. Search for **Environment Variables** in Windows Start Menu
+2. Click **Edit the system environment variables → Environment Variables**
+3. Under **System Variables**, find and select **Path → Edit**
+4. Click **New** and add:
+   ```
+   C:\Python3x\
+   C:\Python3x\Scripts\
+   ```
+   *(replace `3x` with your actual Python version e.g. `311` for Python 3.11)*
+5. Click OK, close CMD, reopen and run again:
+   ```bash
+   pip install requests urllib3
+   ```
+
+---
+
+### ❌ Error 2 — Splunk Not Receiving Events (HEC Misconfiguration)
+
+**Error:** Script ran successfully but no events appeared in Splunk search. `0 sent` or connection refused on port 8088.
+
+**Cause:** Splunk HEC was either not enabled, SSL was on (causing HTTP requests to fail), wrong port, or index mismatch between script and HEC token.
+
+**Fix:**
+1. Go to **Splunk → Settings → Data Inputs → HTTP Event Collector → Global Settings**
+2. Set **Enable SSL → OFF**
+3. Confirm port is **8088**
+4. When creating the HEC token, set **Index → main** (must match `index=main` in the script)
+5. Update script config:
+   ```python
+   SPLUNK_HEC_URL   = "http://localhost:8088/services/collector/event"  # http not https
+   SPLUNK_HEC_TOKEN = "your-correct-token"
+   ```
+> **Note:** If you want alerts going to a different index, create a new index in Splunk and update both the HEC token and the script config to match.
+
+---
+
+### ❌ Error 3 — Metasploitable 2 Not Reachable / No IP Assigned
+
+**Error:** Nessus scan completes but finds 0 hosts, or script cannot reach target. `ping` from Windows host fails.
+
+**Cause:** VirtualBox network adapter was set to **Bridged Adapter** instead of **Host-Only Adapter**, causing the VM to not get a proper IP reachable from the host.
+
+**Fix:**
+1. Shut down Metasploitable 2 VM
+2. In VirtualBox → Select VM → **Settings → Network**
+3. Change **Attached to: Host-Only Adapter**
+4. Start the VM and run:
+   ```bash
+   ifconfig eth0
+   ```
+5. Note the IP (e.g., `192.168.56.101`)
+6. From Windows CMD, verify:
+   ```bash
+   ping 192.168.56.101
+   ```
+7. Update Nessus scan target to this new IP
+
+---
+
+### ❌ Error 4 — 412 Error When Creating Scan via API Keys
+
+**Error:**
+```
+412 Client Error: Precondition Failed
+API is not available with this license
+```
+
+**Cause:** Nessus Expert trial license restricts scan creation via API keys. Attempting to create scans programmatically using Access Key + Secret Key returns a 412 error.
+
+**Fix:** Use **session-based authentication** (username + password) instead of API keys. The script handles this automatically:
+```python
+# Script logs in with username/password to get a session token
+NESSUS_USER = "admin"
+NESSUS_PASS = "yourpassword"
+# Do NOT use API keys for scan creation on trial license
+```
+Also, **create the scan manually** in the Nessus UI first, then let the script launch it by Scan ID.
+
+---
+
+### ❌ Error 5 — Script Authentication Failing
+
+**Error:**
+```
+[!] Login failed!
+401 Unauthorized
+```
+
+**Cause:** Wrong username or password entered in the script config, or Nessus session had expired.
+
+**Fix:**
+1. Double-check credentials in the script CONFIG section:
+   ```python
+   NESSUS_USER = "admin"       # exact username used during Nessus setup
+   NESSUS_PASS = "yourpassword"  # case-sensitive
+   ```
+2. Verify you can log in manually at `https://localhost:8834`
+3. If Nessus was restarted, the session token resets — just re-run the script to get a fresh token
+4. Make sure Nessus service is running (check `https://localhost:8834` in browser)
+
+---
+
+### ❌ Error 6 — Scan Not Starting Automatically
+
+**Error:** Script launches but scan stays in `pending` or doesn't trigger at all.
+
+**Cause:** Nessus trial sometimes does not auto-trigger scans via API on the first call, or a previous scan was still running.
+
+**Fix:**
+1. Go to **Nessus UI → My Scans**
+2. Manually click **Launch** on your scan
+3. Wait for it to complete once manually
+4. After that, the script can take over for subsequent automated cycles
+5. Also ensure no other scan is already running — Nessus trial allows only one scan at a time
+
+---
+
 ## 🔐 Security Notes
 
 - ⚠️ Metasploitable 2 is **intentionally vulnerable** — never expose it to the internet
