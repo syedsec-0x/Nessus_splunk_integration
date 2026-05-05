@@ -10,10 +10,11 @@ NESSUS_URL       = "https://localhost:8834"
 NESSUS_USER      = "admin"
 NESSUS_PASS      = "Admin@123"
 
-SCAN_ID          = 13
+SCAN_ID          = 13        # When you run list_scans.py  then u will get ID no of the Machine (metasploitable2) note that and the paste that ID here SCAN_ID.
 
 SPLUNK_HEC_URL   = "http://localhost:8088/services/collector/event"
-SPLUNK_HEC_TOKEN = "a3742986-b267-4e85-ac17-812aca2ecca0"
+SPLUNK_HEC_TOKEN = "a3742582-b267-4e85-ac17-812acawwee5"    # go to splunk >> Settings >> Data inputs >> http event collector >> new token ("enter name" )and >>
+                                                             # >>next >> select sourcetype "Automatic">>select index "main">> review >> Done and paste your token here.
 
 INTERVAL_MINS    = 30
 SPLUNK_BATCH_SIZE = 25
