@@ -6,18 +6,20 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ─── CONFIG ───────────────────────────────────────────
-NESSUS_URL       = "https://localhost:8834"
-NESSUS_USER      = "admin"
-NESSUS_PASS      = "Admin@123"
+NESSUS_URL        = "https://localhost:8834"
+NESSUS_USER       = "admin"                         #username
+NESSUS_PASS       = "Admin@123"                     #password
 
-SCAN_ID          = 13        # When you run list_scans.py  then u will get ID no of the Machine (metasploitable2) note that and the paste that ID here SCAN_ID.
+SCAN_ID           = 19                              # change to ur scan id after getting list of ids.
 
-SPLUNK_HEC_URL   = "http://localhost:8088/services/collector/event"
-SPLUNK_HEC_TOKEN = "a3742582-b267-4e85-ac17-812acawwee5"    # go to splunk >> Settings >> Data inputs >> http event collector >> new token ("enter name" )and >>
-                                                             # >>next >> select sourcetype "Automatic">>select index "main">> review >> Done and paste your token here.
+SPLUNK_HEC_URL    = "http://localhost:8088/services/collector/event"
+SPLUNK_HEC_TOKEN  = "####2986-b267-4e85-ac17-812aca2e####"            # HEC-TOkEN  change to yours by going to splunk enterprises >settings>> data inputs >>html event collector.
 
-INTERVAL_MINS    = 30
+INTERVAL_MINS     = 30
 SPLUNK_BATCH_SIZE = 25
+
+# This will be set at runtime by asking the user
+SPLUNK_INDEX      = None
 # ──────────────────────────────────────────────────────
 
 HEADERS = {}
@@ -25,6 +27,53 @@ HEADERS = {}
 # Persistent session for Splunk — avoids RemoteDisconnected errors
 SESSION = requests.Session()
 SESSION.verify = False
+
+
+def choose_splunk_index():
+    """
+    Ask the user which Splunk index to store logs in.
+    Shows a numbered list of common indexes plus a custom option.
+    """
+    common_indexes = [
+        "main",
+        "nessus",
+        "security",
+        "vulnerability",
+        "siem",
+        "network",
+    ]
+
+    print("\n" + "="*55)
+    print("  SPLUNK INDEX SELECTION")
+    print("="*55)
+    print("  Where should Nessus vulnerability logs be stored?\n")
+
+    for i, idx in enumerate(common_indexes, start=1):
+        print(f"  [{i}] {idx}")
+    print(f"  [{len(common_indexes) + 1}] Custom (type your own index name)")
+    print("="*55)
+
+    while True:
+        choice = input("  Enter choice number: ").strip()
+
+        if choice.isdigit():
+            choice_num = int(choice)
+            if 1 <= choice_num <= len(common_indexes):
+                selected = common_indexes[choice_num - 1]
+                print(f"\n[+] Selected index: '{selected}'")
+                return selected
+            elif choice_num == len(common_indexes) + 1:
+                custom = input("  Enter your custom index name: ").strip()
+                if custom:
+                    print(f"\n[+] Selected index: '{custom}'")
+                    return custom
+                else:
+                    print("  [!] Index name cannot be empty. Try again.")
+            else:
+                print(f"  [!] Please enter a number between 1 and {len(common_indexes) + 1}.")
+        else:
+            print("  [!] Invalid input. Please enter a number.")
+
 
 def login():
     print("[*] Logging into Nessus...")
@@ -43,12 +92,14 @@ def login():
         "Content-Type": "application/json"
     }
 
+
 def is_auth_error(data):
     if isinstance(data, dict):
         err = str(data.get('error', ''))
         if 'Invalid Credentials' in err or 'Invalid token' in err:
             return True
     return False
+
 
 def api_get(url, retry=True):
     global HEADERS
@@ -84,8 +135,9 @@ def api_get(url, retry=True):
 
     return data
 
+
 def test_splunk():
-    print("[*] Testing Splunk HEC connectivity...")
+    print(f"[*] Testing Splunk HEC connectivity (index: '{SPLUNK_INDEX}')...")
     splunk_headers = {
         "Authorization": f"Splunk {SPLUNK_HEC_TOKEN}",
         "Content-Type": "application/json"
@@ -94,7 +146,7 @@ def test_splunk():
         "time": time.time(),
         "event": {"test": "hello from nessus script"},
         "sourcetype": "nessus:vuln",
-        "index": "main"
+        "index": SPLUNK_INDEX
     })
     try:
         r = SESSION.post(
@@ -104,11 +156,13 @@ def test_splunk():
             timeout=10
         )
         if r.status_code == 200:
-            print("[+] Splunk HEC is reachable and accepting events!")
+            print(f"[+] Splunk HEC reachable! Logs will go to index: '{SPLUNK_INDEX}'")
         else:
             print(f"[!] Splunk HEC returned {r.status_code}: {r.text[:500]}")
+            print(f"    -> Is index '{SPLUNK_INDEX}' created in Splunk?")
     except Exception as e:
         print(f"[!] Could not reach Splunk HEC: {e}")
+
 
 def get_scan_status():
     data = api_get(f"{NESSUS_URL}/scans/{SCAN_ID}")
@@ -117,6 +171,7 @@ def get_scan_status():
             print(f"    [!] Unexpected response: {data}")
         return "unknown"
     return data['info']['status']
+
 
 def wait_for_completed():
     print("[*] Waiting for scan to reach 'completed' status...")
@@ -130,6 +185,7 @@ def wait_for_completed():
             print(f"[!] Scan ended with status: {status}")
             return
         time.sleep(30)
+
 
 def wait_for_running_then_complete():
     print(f"\n[*] Monitoring scan ID {SCAN_ID}...")
@@ -160,6 +216,7 @@ def wait_for_running_then_complete():
             return
         time.sleep(30)
 
+
 def get_vulnerabilities():
     data = api_get(f"{NESSUS_URL}/scans/{SCAN_ID}")
     vulns = []
@@ -176,6 +233,7 @@ def get_vulnerabilities():
 
     return vulns
 
+
 def send_to_splunk(vulnerabilities):
     splunk_headers = {
         "Authorization": f"Splunk {SPLUNK_HEC_TOKEN}",
@@ -187,8 +245,8 @@ def send_to_splunk(vulnerabilities):
     total  = len(vulnerabilities)
 
     for batch_start in range(0, total, SPLUNK_BATCH_SIZE):
-        batch = vulnerabilities[batch_start: batch_start + SPLUNK_BATCH_SIZE]
-        batch_num    = (batch_start // SPLUNK_BATCH_SIZE) + 1
+        batch         = vulnerabilities[batch_start: batch_start + SPLUNK_BATCH_SIZE]
+        batch_num     = (batch_start // SPLUNK_BATCH_SIZE) + 1
         total_batches = (total + SPLUNK_BATCH_SIZE - 1) // SPLUNK_BATCH_SIZE
 
         payload_lines = []
@@ -210,7 +268,7 @@ def send_to_splunk(vulnerabilities):
                     "family":         vuln.get('plugin_family')
                 },
                 "sourcetype": "nessus:vuln",
-                "index":      "main"
+                "index":      SPLUNK_INDEX      # ← uses chosen index
             }
             payload_lines.append(json.dumps(event_obj))
 
@@ -235,7 +293,8 @@ def send_to_splunk(vulnerabilities):
 
         time.sleep(0.5)
 
-    print(f"[+] Splunk: {sent}/{total} sent, {errors} errors")
+    print(f"[+] Splunk: {sent}/{total} sent to index '{SPLUNK_INDEX}', {errors} errors")
+
 
 def collect_and_send():
     vulns = get_vulnerabilities()
@@ -245,12 +304,18 @@ def collect_and_send():
         print(f"[+] Found {len(vulns)} vulnerabilities across all hosts")
         send_to_splunk(vulns)
 
+
 def run():
-    global HEADERS
+    global HEADERS, SPLUNK_INDEX
+
+    # Ask user which Splunk index to use before anything else
+    SPLUNK_INDEX = choose_splunk_index()
+
     HEADERS = login()
     test_splunk()
 
     print(f"\n[+] Monitoring Scan ID : {SCAN_ID}")
+    print(f"[+] Splunk Index       : {SPLUNK_INDEX}")
     print(f"[+] Batch size         : {SPLUNK_BATCH_SIZE} events per request")
     print(f"[+] Repeat interval    : {INTERVAL_MINS} minutes")
 
@@ -302,6 +367,7 @@ def run():
             time.sleep(INTERVAL_MINS * 60)
 
         cycle += 1
+
 
 if __name__ == "__main__":
     run()
