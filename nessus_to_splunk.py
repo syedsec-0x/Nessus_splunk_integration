@@ -10,7 +10,7 @@ NESSUS_URL        = "https://localhost:8834"
 NESSUS_USER       = "admin"                         #username
 NESSUS_PASS       = "Admin@123"                     #password
 
-SCAN_ID           = 19                              # change to ur scan id after getting list of ids.
+SCAN_ID           = 20                              # change to ur scan id after getting list of ids.
 
 SPLUNK_HEC_URL    = "http://localhost:8088/services/collector/event"
 SPLUNK_HEC_TOKEN  = "####2986-b267-4e85-ac17-812aca2e####"            # HEC-TOkEN  change to yours by going to splunk enterprises >settings>> data inputs >>html event collector.
